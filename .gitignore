@@ -1,0 +1,14 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs/XsvHcdtHelper/CopilotIndices/17.14.1691.21253
+/.vs/XsvHcdtHelper/FileContentIndex
+/src/XsvHcdtHelper/obj
+/tests/XsvHcdtHelper.Tests/bin/Debug/net8.0
+/tests/XsvHcdtHelper.Tests/obj
+/src/XsvHcdtHelper/bin/Debug/net8.0
+/.vs/ProjectEvaluation
+/.vs/XsvHcdtHelper/CopilotIndices/17.14.1679.25730
+/.vs/XsvHcdtHelper/DesignTimeBuild
+/.vs/XsvHcdtHelper/v17
