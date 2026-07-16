@@ -5,6 +5,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Xunit;
 using XsvHcdtHelper;
+using Microsoft.Extensions.Configuration;
+using IConfiguration = Microsoft.Extensions.Configuration.IConfiguration;
 
 public class DependencyInjectionTests
 {
@@ -48,5 +50,40 @@ public class DependencyInjectionTests
         options.StrictFieldCount.Should().BeTrue();
 
         options.InputDelimiter.Should().Be(FieldDelimiter.Auto);
+    }
+
+    [Fact]
+    public void AddXsvHcdtHelper_WithIConfiguration_BindsOptionsCorrectly()
+    {
+        // Arrange
+        // Simulate reading from an appsettings.json section
+        var inMemorySettings = new Dictionary<string, string?>
+        {
+            {"OutputFormat", "Parquet"},
+            {"StrictFieldCount", "true"},
+            {"RowGroupSize", "1000"}
+        };
+
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(inMemorySettings)
+            .Build();
+
+        var services = new ServiceCollection();
+
+        // Act
+        services.AddXsvHcdtHelper(configuration);
+        var provider = services.BuildServiceProvider();
+
+        // Assert
+        var options = provider.GetRequiredService<IOptions<XsvHcdtOptions>>().Value;
+
+        // Values overridden by config
+        options.OutputFormat.Should().Be(OutputFormat.Parquet);
+        options.StrictFieldCount.Should().BeTrue();
+        options.RowGroupSize.Should().Be(1000);
+
+        // Values NOT in config should keep their sensible defaults
+        options.InputDelimiter.Should().Be(FieldDelimiter.Auto);
+        options.ValidateTrailerCount.Should().BeTrue();
     }
 }

@@ -1,68 +1,86 @@
-﻿using System;
+using System;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace XsvHcdtHelper;
 
 public sealed class XsvHcdtNormaliser : IXsvHcdtNormaliser
 {
+    private readonly IServiceProvider? _serviceProvider;
+    private readonly XsvHcdtOptions _baseOptions;
+    public XsvHcdtNormaliser(IServiceProvider? serviceProvider = null, IOptions<XsvHcdtOptions>? options = null)
+    {
+        _serviceProvider = serviceProvider;
+        _baseOptions = options?.Value ?? new XsvHcdtOptions();
+    }
+
+    private IRowSink CreateSink(Stream output, XsvHcdtOptions options)
+    {
+        if (options.CustomSinkType != null)
+        {
+            if (_serviceProvider != null)
+            {
+                return (IRowSink)ActivatorUtilities.CreateInstance(_serviceProvider, options.CustomSinkType, output);
+            }
+
+            return (IRowSink)Activator.CreateInstance(options.CustomSinkType, output)!;
+        }
+
+        return options.OutputFormat == OutputFormat.Csv
+            ? new CsvRowSink(output, options)
+            : new ParquetRowSink(output, options);
+    }
+
     public async Task<XsvValidationReport> NormaliseAsync(
             Stream input,
             Stream output,
             Action<XsvHcdtOptions>? configure = null,
             CancellationToken ct = default)
     {
-        var options = new XsvHcdtOptions();
+        var options = _baseOptions.Clone();
         configure?.Invoke(options);
 
         try
         {
-            await using IRowSink sink = options.OutputFormat == OutputFormat.Csv
-                        ? new CsvRowSink(output, options)
-                        : new ParquetRowSink(output, options);
+            await using IRowSink sink = CreateSink(output, options);
 
-            using var reader = new StreamReader(input, leaveOpen: true);
+            await using var reader = new XsvRfc4180RecordReader(input, options);
 
             string? headerFileName = null;
             string? headerTimestamp = null;
+            string? trailerFileName = null;
+            string? trailerTimestamp = null;
+            long declaredCount = 0;
             long actualDataRecords = 0;
             bool hasReadColumns = false;
             List<string> columns = new();
 
-            var firstLine = await reader.ReadLineAsync(ct);
-            if (firstLine == null || !firstLine.StartsWith("H"))
+            var header = await reader.ReadAsync(ct);
+            if (header is null || header.Tag != 'H')
                 throw new XsvValidationException("File must start with an 'H' (Header) record.");
 
-            char delimiter;
-            if (options.InputDelimiter == FieldDelimiter.Pipe) delimiter = '|';
-            else if (options.InputDelimiter == FieldDelimiter.Comma) delimiter = ',';
-            else
-            {
-                if (firstLine.StartsWith("H|")) delimiter = '|';
-                else if (firstLine.StartsWith("H,")) delimiter = ',';
-                else throw new XsvValidationException("Cannot auto-detect delimiter. Expected 'H|' or 'H,'.");
-            }
+            headerFileName = header.Fields.Count > 0 ? header.Fields[0] : null;
+            headerTimestamp = header.Fields.Count > 1 ? header.Fields[1] : null;
 
-            var headerParts = firstLine.Split(delimiter);
-            headerFileName = headerParts.Length > 1 ? headerParts[1] : null;
-            headerTimestamp = headerParts.Length > 2 ? headerParts[2] : null;
-
-            string? line;
-            while ((line = await reader.ReadLineAsync(ct)) != null)
+            XsvParsedRecord? record;
+            while ((record = await reader.ReadAsync(ct)) is not null)
             {
-                if (line.StartsWith("C"))
+                if (record.Tag == 'C')
                 {
+                    if (hasReadColumns)
+                        throw new XsvValidationException("Multiple 'C' (Columns) records found.");
+
                     hasReadColumns = true;
-                    var parts = line.Split(delimiter);
-                    columns = parts.Skip(1).ToList();
+                    columns = record.Fields.ToList();
                     sink.Begin(columns);
                 }
-                else if (line.StartsWith("D"))
+                else if (record.Tag == 'D')
                 {
                     if (!hasReadColumns)
                         throw new XsvValidationException("Found 'D' record before 'C' column definition.");
 
                     actualDataRecords++;
-                    var parts = line.Split(delimiter);
-                    var fields = parts.Skip(1).ToList();
+                    var fields = record.Fields.ToList();
 
                     if (options.StrictFieldCount && fields.Count != columns.Count)
                     {
@@ -84,12 +102,16 @@ public sealed class XsvHcdtNormaliser : IXsvHcdtNormaliser
 
                     await sink.WriteRowAsync(fields, ct);
                 }
-                else if (line.StartsWith("T"))
+                else if (record.Tag == 'T')
                 {
-                    var parts = line.Split(delimiter);
-                    var trailerFileName = parts.Length > 1 ? parts[1] : null;
-                    var trailerTimestamp = parts.Length > 2 ? parts[2] : null;
-                    var declaredCount = parts.Length > 3 ? long.Parse(parts[3]) : 0;
+                    if (options.ValidateEnvelopeOrder && !hasReadColumns)
+                    {
+                        throw new XsvValidationException("File is missing 'C' (Columns) record.");
+                    }
+
+                    trailerFileName = record.Fields.Count > 0 ? record.Fields[0] : null;
+                    trailerTimestamp = record.Fields.Count > 1 ? record.Fields[1] : null;
+                    declaredCount = record.Fields.Count > 2 ? long.Parse(record.Fields[2]) : 0;
 
                     if (options.ValidateTrailerCount && declaredCount != actualDataRecords)
                     {
@@ -108,17 +130,24 @@ public sealed class XsvHcdtNormaliser : IXsvHcdtNormaliser
 
                     break;
                 }
+                else
+                {
+                    throw new XsvValidationException($"Unexpected record tag '{record.Tag}' encountered.");
+                }
             }
 
-            if (line == null || !line.StartsWith("T"))
+            if (record is null || record.Tag != 'T')
             {
                 throw new XsvValidationException("File is missing 'T' (Trailer) record or was truncated.");
             }
 
             await sink.FinishAsync(ct);
 
+            bool trailerMatched = declaredCount == actualDataRecords;
+            bool headerMatched = (headerFileName == trailerFileName) && (headerTimestamp == trailerTimestamp);
+
             return new XsvValidationReport(
-                headerFileName, headerTimestamp, actualDataRecords, actualDataRecords, true, true, columns);
+                headerFileName, headerTimestamp, declaredCount, actualDataRecords, trailerMatched, headerMatched, columns);
         }
         catch (Exception)
         {
@@ -126,24 +155,25 @@ public sealed class XsvHcdtNormaliser : IXsvHcdtNormaliser
             throw;
         }
     }
+
     public async Task<XsvValidationReport> NormaliseFileAsync(
             string inputPath,
             string outputPath,
             Action<XsvHcdtOptions>? configure = null,
             CancellationToken ct = default)
     {
-        var options = new XsvHcdtOptions();
+        var options = _baseOptions.Clone();
         configure?.Invoke(options);
 
         try
         {
-            await using var inputStream = new FileStream(
-                inputPath, FileMode.Open, FileAccess.Read, FileShare.Read, options.BufferSize, useAsync: true);
-
-            await using var outputStream = new FileStream(
-                outputPath, FileMode.Create, FileAccess.Write, FileShare.None, options.BufferSize, useAsync: true);
-
-            return await NormaliseAsync(inputStream, outputStream, configure, ct);
+            await using (var inputStream = new FileStream(
+                inputPath, FileMode.Open, FileAccess.Read, FileShare.Read, options.BufferSize, useAsync: true))
+            await using (var outputStream = new FileStream(
+                outputPath, FileMode.Create, FileAccess.Write, FileShare.None, options.BufferSize, useAsync: true))
+            {
+                return await NormaliseAsync(inputStream, outputStream, configure, ct);
+            }
         }
         catch (Exception)
         {

@@ -15,4 +15,6 @@ public sealed class XsvHcdtOptions
 
     public int RowGroupSize { get; set; } = 50_000;
     public int BufferSize { get; set; } = 64 * 1024;
+    public Type? CustomSinkType { get; set; }
+    public XsvHcdtOptions Clone() => (XsvHcdtOptions)MemberwiseClone();
 }

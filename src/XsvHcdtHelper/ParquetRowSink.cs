@@ -12,6 +12,7 @@ public sealed class ParquetRowSink : IRowSink
 
     private ParquetSchema? _schema;
     private ParquetWriter? _writer;
+    private bool _finished;
 
     private DataField<string>[]? _dataFields;
     private List<string>[]? _columnBuffers;
@@ -58,11 +59,17 @@ public sealed class ParquetRowSink : IRowSink
         {
             await FlushRowGroupAsync(ct);
         }
+        else if (_writer is null && _schema is not null)
+        {
+            _writer = await ParquetWriter.CreateAsync(_schema, _output, cancellationToken: ct);
+        }
 
         if (_writer != null)
         {
             await _writer.DisposeAsync();
         }
+
+        _finished = true;
     }
 
     private async Task FlushRowGroupAsync(CancellationToken ct)
@@ -84,8 +91,11 @@ public sealed class ParquetRowSink : IRowSink
         _bufferedRowCount = 0;
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        return ValueTask.CompletedTask;
+        if (!_finished && _writer != null)
+        {
+            await _writer.DisposeAsync();
+        }
     }
 }

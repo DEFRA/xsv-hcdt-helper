@@ -4,6 +4,8 @@ using FluentAssertions;
 using Xunit;
 using XsvHcdtHelper;
 using System.Text;
+using CsvHelper;
+using System.Globalization;
 using Parquet;
 using Parquet.Data;
 using Parquet.Schema;
@@ -44,6 +46,29 @@ public class NormaliserTests
 
         csvOutput.Should().Contain("RECORD_TYPE,RECORD_COUNT,ETF_ID,ETF_DESCRIPTION");
         csvOutput.Should().Contain("1,3,Pre-Barimo,\" XXXXXX XXXXX\"");
+    }
+
+    [Fact]
+    public async Task NormaliseAsync_GivenQuotedCommaRecordWithEmbeddedNewline_PreservesLogicalField()
+    {
+        const string notes = "A comma, a pipe |, and a \"quote\"\nacross two lines";
+        var input = "H,export.csv,22022026 07:46:03\n" +
+                    "C,ID,NOTES\n" +
+                    "D,1,\"A comma, a pipe |, and a \"\"quote\"\"\nacross two lines\"\n" +
+                    "T,export.csv,22022026 07:46:03,1\n";
+
+        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        using var outputStream = new MemoryStream();
+
+        var report = await new XsvHcdtNormaliser().NormaliseAsync(inputStream, outputStream);
+
+        report.ActualDataRecords.Should().Be(1);
+        outputStream.Position = 0;
+        using var csv = new CsvReader(new StreamReader(outputStream), CultureInfo.InvariantCulture);
+        csv.Read();
+        csv.ReadHeader();
+        csv.Read();
+        csv.GetField("NOTES").Should().Be(notes);
     }
 
     [Fact]
@@ -286,5 +311,131 @@ public class NormaliserTests
         await act.Should().ThrowAsync<OperationCanceledException>();
 
         outputStream.Length.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task NormaliseFileAsync_WhenValidationFails_ReleasesLockAndDeletesOutputFile()
+    {
+        // Arrange
+        var inputPath = Path.GetTempFileName();
+        var outputPath = Path.GetTempFileName();
+
+        // Write explicitly invalid data (missing the 'T' trailer) to force a validation exception
+        const string invalidInput = """
+            H|CTSM_UKV.csv|22022026 07:46:03
+            C|RECORD_TYPE|RECORD_COUNT
+            D|1|3
+            """;
+        await File.WriteAllTextAsync(inputPath, invalidInput);
+
+        var normaliser = new XsvHcdtNormaliser();
+
+        try
+        {
+            // Act
+            Func<Task> act = async () => await normaliser.NormaliseFileAsync(inputPath, outputPath);
+
+            // Assert
+            // Check that the correct exception is thrown
+            await act.Should().ThrowAsync<XsvValidationException>()
+                .WithMessage("*missing 'T' (Trailer) record*");
+
+            // Ensure the file was successfully deleted
+            File.Exists(outputPath).Should().BeFalse(
+                "The output file should have been deleted during the catch block cleanup.");
+        }
+        finally
+        {
+            if (File.Exists(inputPath)) File.Delete(inputPath);
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public async Task NormaliseAsync_GivenDataRecordBeforeColumnsRecord_ThrowsValidationException()
+    {
+        const string input = """
+        H|CTSM_UKV.csv|14072026 14:30:00
+        D|1|Alice
+        C|ID|NAME
+        T|CTSM_UKV.csv|14072026 14:30:00|1
+        """;
+
+        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        using var outputStream = new MemoryStream();
+        var normaliser = new XsvHcdtNormaliser();
+
+        Func<Task> act = async () => await normaliser.NormaliseAsync(inputStream, outputStream);
+
+        await act.Should().ThrowAsync<XsvValidationException>()
+            .WithMessage("*Found 'D' record before 'C' column definition*");
+    }
+
+    [Fact]
+    public async Task NormaliseAsync_GivenNoColumnsRecordAtAll_ThrowsValidationException()
+    {
+        const string input = """
+        H|CTSM_UKV.csv|14072026 14:30:00
+        T|CTSM_UKV.csv|14072026 14:30:00|0
+        """;
+
+        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        using var outputStream = new MemoryStream();
+        var normaliser = new XsvHcdtNormaliser();
+
+        Func<Task> act = async () => await normaliser.NormaliseAsync(inputStream, outputStream);
+
+        await act.Should().ThrowAsync<XsvValidationException>()
+            .WithMessage("*missing 'C' (Columns) record*");
+    }
+
+    [Fact]
+    public async Task NormaliseAsync_GivenEmptyInput_ThrowsValidationException()
+    {
+        using var inputStream = new MemoryStream();
+        using var outputStream = new MemoryStream();
+        var normaliser = new XsvHcdtNormaliser();
+
+        Func<Task> act = async () => await normaliser.NormaliseAsync(inputStream, outputStream);
+
+        await act.Should().ThrowAsync<XsvValidationException>()
+            .WithMessage("*must start with an 'H' (Header) record*");
+    }
+
+    [Fact]
+    public async Task NormaliseAsync_GivenFileStartingWithTrailerRecord_ThrowsValidationException()
+    {
+        // Mirrors test-files/invalid_t_at_top.psv
+        const string input = "T|CTSM_UKV.csv|14072026 14:30:00|0\n";
+
+        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        using var outputStream = new MemoryStream();
+        var normaliser = new XsvHcdtNormaliser();
+
+        Func<Task> act = async () => await normaliser.NormaliseAsync(inputStream, outputStream);
+
+        await act.Should().ThrowAsync<XsvValidationException>()
+            .WithMessage("*must start with an 'H' (Header) record*");
+    }
+
+    [Fact]
+    public async Task NormaliseAsync_GivenValidInput_ReportExposesResolvedColumnList()
+    {
+        const string input = """
+        H|CTSM_UKV.csv|22022026 07:46:03
+        C|RECORD_TYPE|ID|NAME
+        D|1|1001|Alice
+        T|CTSM_UKV.csv|22022026 07:46:03|1
+        """;
+
+        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        using var outputStream = new MemoryStream();
+        var normaliser = new XsvHcdtNormaliser();
+
+        var report = await normaliser.NormaliseAsync(inputStream, outputStream);
+
+        report.Columns.Should().BeEquivalentTo(
+            new[] { "RECORD_TYPE", "ID", "NAME" },
+            opts => opts.WithStrictOrdering());
     }
 }

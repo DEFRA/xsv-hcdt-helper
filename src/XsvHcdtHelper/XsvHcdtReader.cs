@@ -1,18 +1,26 @@
 ﻿using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Options;
 
 namespace XsvHcdtHelper;
 
 public sealed class XsvHcdtReader : IXsvHcdtReader
 {
+    private readonly XsvHcdtOptions _baseOptions;
+
+    public XsvHcdtReader(IOptions<XsvHcdtOptions>? options = null)
+    {
+        _baseOptions = options?.Value ?? new XsvHcdtOptions();
+    }
+
     public async IAsyncEnumerable<XsvRecord> ReadAsync(
         Stream input,
         Action<XsvHcdtOptions>? configure = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var options = new XsvHcdtOptions();
+        var options = _baseOptions.Clone();
         configure?.Invoke(options);
 
-        using var streamReader = new StreamReader(input, leaveOpen: true);
+        await using var reader = new XsvRfc4180RecordReader(input, options);
 
         string? headerFileName = null;
         string? headerTimestamp = null;
@@ -20,44 +28,34 @@ public sealed class XsvHcdtReader : IXsvHcdtReader
         bool hasReadColumns = false;
         int expectedColumnCount = 0;
 
-        var firstLine = await streamReader.ReadLineAsync(ct);
-        if (firstLine == null || !firstLine.StartsWith("H"))
+        var header = await reader.ReadAsync(ct);
+        if (header is null || header.Tag != 'H')
             throw new XsvValidationException("File must start with an 'H' (Header) record.");
 
-        char delimiter;
-        if (options.InputDelimiter == FieldDelimiter.Pipe) delimiter = '|';
-        else if (options.InputDelimiter == FieldDelimiter.Comma) delimiter = ',';
-        else
-        {
-            if (firstLine.StartsWith("H|")) delimiter = '|';
-            else if (firstLine.StartsWith("H,")) delimiter = ',';
-            else throw new XsvValidationException("Cannot auto-detect delimiter. Expected 'H|' or 'H,'.");
-        }
+        headerFileName = header.Fields.Count > 0 ? header.Fields[0] : null;
+        headerTimestamp = header.Fields.Count > 1 ? header.Fields[1] : null;
 
-        var headerParts = firstLine.Split(delimiter);
-        headerFileName = headerParts.Length > 1 ? headerParts[1] : null;
-        headerTimestamp = headerParts.Length > 2 ? headerParts[2] : null;
-
-        string? line;
-        while ((line = await streamReader.ReadLineAsync(ct)) != null)
+        XsvParsedRecord? record;
+        while ((record = await reader.ReadAsync(ct)) is not null)
         {
-            if (line.StartsWith("C"))
+            if (record.Tag == 'C')
             {
+                if (hasReadColumns)
+                    throw new XsvValidationException("Multiple 'C' (Columns) records found.");
+
                 hasReadColumns = true;
-                var parts = line.Split(delimiter);
-                var columns = parts.Skip(1).ToList();
+                var columns = record.Fields.ToList();
                 expectedColumnCount = columns.Count;
 
                 yield return new XsvRecord('C', columns);
             }
-            else if (line.StartsWith("D"))
+            else if (record.Tag == 'D')
             {
                 if (!hasReadColumns)
                     throw new XsvValidationException("Found 'D' record before 'C' column definition.");
 
                 actualDataRecords++;
-                var parts = line.Split(delimiter);
-                var fields = parts.Skip(1).ToList();
+                var fields = record.Fields.ToList();
 
                 if (options.StrictFieldCount && fields.Count != expectedColumnCount)
                 {
@@ -79,12 +77,16 @@ public sealed class XsvHcdtReader : IXsvHcdtReader
 
                 yield return new XsvRecord('D', fields);
             }
-            else if (line.StartsWith("T"))
+            else if (record.Tag == 'T')
             {
-                var parts = line.Split(delimiter);
-                var trailerFileName = parts.Length > 1 ? parts[1] : null;
-                var trailerTimestamp = parts.Length > 2 ? parts[2] : null;
-                var declaredCount = parts.Length > 3 ? long.Parse(parts[3]) : 0;
+                if (options.ValidateEnvelopeOrder && !hasReadColumns)
+                {
+                    throw new XsvValidationException("File is missing 'C' (Columns) record.");
+                }
+
+                var trailerFileName = record.Fields.Count > 0 ? record.Fields[0] : null;
+                var trailerTimestamp = record.Fields.Count > 1 ? record.Fields[1] : null;
+                var declaredCount = record.Fields.Count > 2 ? long.Parse(record.Fields[2]) : 0;
 
                 if (options.ValidateTrailerCount && declaredCount != actualDataRecords)
                     throw new XsvValidationException($"Declared record count ({declaredCount}) does not match actual count ({actualDataRecords}).");
@@ -99,9 +101,13 @@ public sealed class XsvHcdtReader : IXsvHcdtReader
 
                 break;
             }
+            else
+            {
+                throw new XsvValidationException($"Unexpected record tag '{record.Tag}' encountered.");
+            }
         }
 
-        if (line == null || !line.StartsWith("T"))
+        if (record is null || record.Tag != 'T')
         {
             throw new XsvValidationException("File is missing 'T' (Trailer) record or was truncated.");
         }

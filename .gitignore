@@ -12,3 +12,11 @@
 /.vs/XsvHcdtHelper/CopilotIndices/17.14.1679.25730
 /.vs/XsvHcdtHelper/DesignTimeBuild
 /.vs/XsvHcdtHelper/v17
+/.vs/XsvHcdtHelper
+/tests/XsvHcdtHelper.Tests/bin/Debug/net10.0
+/src/XsvHcdtHelper/bin/Debug/net10.0
+/samples/XsvHcdtHelper.Sample/bin/Debug/net10.0
+/samples/XsvHcdtHelper.Sample/obj
+/src/XsvHcdtHelper/bin/Release
+/samples/XsvHcdtHelper.Sample/bin/Release
+/test-files

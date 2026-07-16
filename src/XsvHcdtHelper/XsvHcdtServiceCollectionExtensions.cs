@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace XsvHcdtHelper;
 
@@ -37,6 +38,20 @@ public static class XsvHcdtServiceCollectionExtensions
     {
         var builder = services.AddXsvHcdtHelper();
         services.Configure(configure);
+        return builder;
+    }
+
+    /// <summary>
+    /// Registers XSV Helper services and binds options from IConfiguration.
+    /// </summary>
+    public static IXsvHcdtBuilder AddXsvHcdtHelper(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var builder = services.AddXsvHcdtHelper();
+
+        services.Configure<XsvHcdtOptions>(configuration);
+
         return builder;
     }
 }

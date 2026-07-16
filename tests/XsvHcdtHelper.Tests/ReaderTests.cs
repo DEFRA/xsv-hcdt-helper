@@ -39,4 +39,25 @@ public class ReaderTests
         records[2].Tag.Should().Be('D');
         records[2].Fields.Should().BeEquivalentTo("2", "Bob");
     }
+
+    [Fact]
+    public async Task ReadAsync_GivenQuotedPipeFieldWithEmbeddedNewline_YieldsOneDataRecord()
+    {
+        const string note = "A | value with a \"quote\"\nand an embedded newline";
+        var input = "H|CTSM_UKV.csv|22022026 07:46:03\n" +
+                    "C|ID|NOTE\n" +
+                    "D|1|\"A | value with a \"\"quote\"\"\nand an embedded newline\"\n" +
+                    "T|CTSM_UKV.csv|22022026 07:46:03|1\n";
+        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+
+        var records = new List<XsvRecord>();
+        await foreach (var record in new XsvHcdtReader().ReadAsync(inputStream))
+        {
+            records.Add(record);
+        }
+
+        records.Should().HaveCount(2);
+        records[1].Tag.Should().Be('D');
+        records[1].Fields.Should().BeEquivalentTo("1", note);
+    }
 }
