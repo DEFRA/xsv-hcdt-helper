@@ -10,11 +10,13 @@
 		<Description>ETL helper for streaming and validating flat H/C/D/T structured files into standard CSV or Parquet formats with bounded memory.</Description>
 		<RepositoryUrl>https://github.com/DEFRA/xsv-hcdt-helper</RepositoryUrl>
 		<Authors>DEFRA Livestock Team</Authors>
+		<PackageLicenseExpression>OGL-UK-3.0</PackageLicenseExpression>
 
-		<IncludeSymbols>true</IncludeSymbols>
-		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
-		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+		<!-- Symbols are embedded in the assembly: GitHub Packages does not accept .snupkg. -->
+		<DebugType>embedded</DebugType>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<!-- ContinuousIntegrationBuild is passed by the CI workflows (-p:...) so local
+		     builds keep normal path mapping for debugging. -->
 	</PropertyGroup>
 
 	<ItemGroup>

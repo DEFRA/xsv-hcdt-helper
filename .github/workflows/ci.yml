@@ -27,3 +27,6 @@ jobs:
       
     - name: Test
       run: dotnet test XsvHcdtHelper.sln -c Release --no-build --verbosity normal
+
+    - name: Pack (validate packaging)
+      run: dotnet pack src/XsvHcdtHelper/XsvHcdtHelper.csproj -c Release --no-build -o ./packages

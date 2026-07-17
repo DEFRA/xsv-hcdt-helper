@@ -15,9 +15,9 @@ public static class XsvHcdtBuilderExtensions
     public static IXsvHcdtBuilder AddOutputSink<TSink>(this IXsvHcdtBuilder builder)
         where TSink : class, IRowSink
     {
+        // The sink is constructed per operation via ActivatorUtilities (it needs the output
+        // Stream as a constructor argument); no container registration is required.
         builder.Services.Configure<XsvHcdtOptions>(opts => opts.CustomSinkType = typeof(TSink));
-
-        builder.Services.AddTransient<TSink>();
 
         return builder;
     }

@@ -12,7 +12,7 @@ public class ReaderTests
     {
         const string input = """
             H|CTSM_UKV.csv|22022026 07:46:03
-            C|ID|NAME
+            C|RECORD_TYPE|ID|NAME
             D|1|Alice
             D|2|Bob
             T|CTSM_UKV.csv|22022026 07:46:03|2
@@ -31,13 +31,13 @@ public class ReaderTests
         records.Count.Should().Be(3);
 
         records[0].Tag.Should().Be('C');
-        records[0].Fields.Should().BeEquivalentTo("ID", "NAME");
+        records[0].Fields.Should().BeEquivalentTo("RECORD_TYPE", "ID", "NAME");
 
         records[1].Tag.Should().Be('D');
-        records[1].Fields.Should().BeEquivalentTo("1", "Alice");
+        records[1].Fields.Should().BeEquivalentTo("D", "1", "Alice");
 
         records[2].Tag.Should().Be('D');
-        records[2].Fields.Should().BeEquivalentTo("2", "Bob");
+        records[2].Fields.Should().BeEquivalentTo("D", "2", "Bob");
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public class ReaderTests
     {
         const string note = "A | value with a \"quote\"\nand an embedded newline";
         var input = "H|CTSM_UKV.csv|22022026 07:46:03\n" +
-                    "C|ID|NOTE\n" +
+                    "C|RECORD_TYPE|ID|NOTE\n" +
                     "D|1|\"A | value with a \"\"quote\"\"\nand an embedded newline\"\n" +
                     "T|CTSM_UKV.csv|22022026 07:46:03|1\n";
         using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
@@ -58,6 +58,6 @@ public class ReaderTests
 
         records.Should().HaveCount(2);
         records[1].Tag.Should().Be('D');
-        records[1].Fields.Should().BeEquivalentTo("1", note);
+        records[1].Fields.Should().BeEquivalentTo("D", "1", note);
     }
 }

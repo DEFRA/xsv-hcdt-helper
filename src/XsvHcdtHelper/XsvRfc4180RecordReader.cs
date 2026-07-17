@@ -49,7 +49,33 @@ internal sealed class XsvRfc4180RecordReader : IAsyncDisposable
             throw new XsvValidationException("Each record must start with a single-character H, C, D, or T tag.");
         }
 
-        return new XsvParsedRecord(fields[0][0], fields.Skip(1).ToArray());
+        var tag = fields[0][0];
+
+        // A 'D' row's leading tag occupies the first declared column (commonly RECORD_TYPE),
+        // so a data row *including* its tag has the same field count as the C column list.
+        // The tag is therefore kept as the row's first field. For H/C/T records the tag is
+        // envelope-only and is stripped.
+        return tag == 'D'
+            ? new XsvParsedRecord(tag, fields)
+            : new XsvParsedRecord(tag, fields.Skip(1).ToArray());
+    }
+
+    /// <summary>
+    /// Returns true if any non-whitespace content remains after the current position.
+    /// Used to enforce that nothing follows the trailer (trailing blank lines are tolerated).
+    /// </summary>
+    public async ValueTask<bool> HasRemainingContentAsync(CancellationToken ct)
+    {
+        string? rawRecord;
+        while ((rawRecord = await ReadRawRecordAsync(ct)) is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(rawRecord))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public ValueTask DisposeAsync()

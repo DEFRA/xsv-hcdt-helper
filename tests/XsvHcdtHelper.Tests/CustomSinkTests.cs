@@ -70,7 +70,7 @@ public class CustomSinkTests
 
         const string input = """
             H|CTSM_UKV.csv|22022026 07:46:03
-            C|ID|NAME
+            C|RECORD_TYPE|ID|NAME
             D|1|Alice
             D|2|Bob
             T|CTSM_UKV.csv|22022026 07:46:03|2
@@ -89,6 +89,6 @@ public class CustomSinkTests
         using var streamReader = new StreamReader(outputStream);
         var jsonOutput = await streamReader.ReadToEndAsync();
 
-        jsonOutput.Should().Be("[{\"ID\":\"1\",\"NAME\":\"Alice\"},{\"ID\":\"2\",\"NAME\":\"Bob\"}]");
+        jsonOutput.Should().Be("[{\"RECORD_TYPE\":\"D\",\"ID\":\"1\",\"NAME\":\"Alice\"},{\"RECORD_TYPE\":\"D\",\"ID\":\"2\",\"NAME\":\"Bob\"}]");
     }
 }

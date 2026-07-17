@@ -55,4 +55,14 @@ else
     Console.WriteLine(await File.ReadAllTextAsync(outputPath));
 }
 
+// Stream-to-stream: the caller owns both streams (the library never closes them).
+// Shown here with the static facade for non-DI callers - same sensible defaults.
+Console.WriteLine("Stream-to-stream demo (static facade, CSV to memory):");
+await using (var inputStream = File.OpenRead(inputPath))
+using (var outputStream = new MemoryStream())
+{
+    var streamReport = await XsvHcdt.NormaliseAsync(inputStream, outputStream);
+    Console.WriteLine($"  Normalised {streamReport.ActualDataRecords} records into an in-memory CSV stream ({outputStream.Length} bytes).");
+}
+
 Console.WriteLine("Done.");

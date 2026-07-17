@@ -12,7 +12,7 @@ public class DelimiterDetectionTests
     {
         const string input = """
             H|AUTO_PIPE.csv|14072026 14:30:00
-            C|ID|NAME
+            C|RECORD_TYPE|ID|NAME
             D|1|Alice
             T|AUTO_PIPE.csv|14072026 14:30:00|1
             """;
@@ -23,19 +23,19 @@ public class DelimiterDetectionTests
         var report = await new XsvHcdtNormaliser().NormaliseAsync(
             inputStream, outputStream, o => o.InputDelimiter = FieldDelimiter.Auto);
 
-        report.Columns.Should().BeEquivalentTo(new[] { "ID", "NAME" }, opts => opts.WithStrictOrdering());
+        report.Columns.Should().BeEquivalentTo(new[] { "RECORD_TYPE", "ID", "NAME" }, opts => opts.WithStrictOrdering());
         report.ActualDataRecords.Should().Be(1);
 
         outputStream.Position = 0;
         var csv = await new StreamReader(outputStream).ReadToEndAsync();
-        csv.Should().Contain("1,Alice");
+        csv.Should().Contain("D,1,Alice");
     }
 
     [Fact]
     public async Task NormaliseAsync_GivenAutoDelimiterAndCommaShapedFile_DetectsCommaAndParsesCorrectly()
     {
         const string input = "H,AUTO_COMMA.csv,14072026 14:30:00\n" +
-                              "C,ID,NAME\n" +
+                              "C,RECORD_TYPE,ID,NAME\n" +
                               "D,1,Alice\n" +
                               "T,AUTO_COMMA.csv,14072026 14:30:00,1\n";
 
@@ -45,7 +45,7 @@ public class DelimiterDetectionTests
         var report = await new XsvHcdtNormaliser().NormaliseAsync(
             inputStream, outputStream, o => o.InputDelimiter = FieldDelimiter.Auto);
 
-        report.Columns.Should().BeEquivalentTo(new[] { "ID", "NAME" }, opts => opts.WithStrictOrdering());
+        report.Columns.Should().BeEquivalentTo(new[] { "RECORD_TYPE", "ID", "NAME" }, opts => opts.WithStrictOrdering());
         report.ActualDataRecords.Should().Be(1);
     }
 

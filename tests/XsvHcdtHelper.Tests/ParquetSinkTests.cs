@@ -14,7 +14,7 @@ public class ParquetSinkTests
         // Arrange
         var input = """
             H|FILE.csv|14072026 14:30:00
-            C|ID|NAME
+            C|RECORD_TYPE|ID|NAME
             D|1|Alice
             D|2|Bob
             D|3|Charlie
@@ -59,9 +59,9 @@ public class ParquetSinkTests
         // Arrange
         var input = """
             H|FILE.csv|14072026 14:30:00
-            C|ID|NAME
-            D|1||
-            D||Bob|
+            C|RECORD_TYPE|ID|NAME
+            D|1|
+            D||Bob
             T|FILE.csv|14072026 14:30:00|2
             """;
 
@@ -85,13 +85,13 @@ public class ParquetSinkTests
 
         // Read the ID column
         var idColumn = new string[2];
-        await rowGroup.ReadAsync(schemaFields[0], idColumn);
+        await rowGroup.ReadAsync(schemaFields[1], idColumn);
         idColumn[0].Should().Be("1");
         idColumn[1].Should().Be(""); // Should be safely handled as an empty string
 
         // Read the NAME column
         var nameColumn = new string[2];
-        await rowGroup.ReadAsync(schemaFields[1], nameColumn);
+        await rowGroup.ReadAsync(schemaFields[2], nameColumn);
         nameColumn[0].Should().Be("");
         nameColumn[1].Should().Be("Bob");
     }
@@ -166,7 +166,7 @@ public class ParquetSinkTests
     public async Task NormaliseAsync_GivenCommaDelimitedInput_ProducesValidParquet()
     {
         const string input = "H,export.csv,14072026 14:35:00\n" +
-                              "C,ID,NOTES\n" +
+                              "C,RECORD_TYPE,ID,NOTES\n" +
                               "D,1,\"A note with, a comma\"\n" +
                               "D,2,Simple note\n" +
                               "T,export.csv,14072026 14:35:00,2\n";
@@ -185,11 +185,11 @@ public class ParquetSinkTests
         outputStream.Position = 0;
         await using var parquetReader = await ParquetReader.CreateAsync(outputStream);
         var dataFields = parquetReader.Schema.GetDataFields();
-        dataFields.Select(f => f.Name).Should().BeEquivalentTo(new[] { "ID", "NOTES" }, opts => opts.WithStrictOrdering());
+        dataFields.Select(f => f.Name).Should().BeEquivalentTo(new[] { "RECORD_TYPE", "ID", "NOTES" }, opts => opts.WithStrictOrdering());
 
         using var rowGroupReader = parquetReader.OpenRowGroupReader(0);
         var notes = new string[2];
-        await rowGroupReader.ReadAsync(dataFields[1], notes);
+        await rowGroupReader.ReadAsync(dataFields[2], notes);
         notes[0].Should().Be("A note with, a comma");
         notes[1].Should().Be("Simple note");
     }
@@ -200,7 +200,7 @@ public class ParquetSinkTests
         const string input = """
         H|CTSM_UKV.csv|22022026 07:46:03
         C|COL1|COL2|COL3
-        D|Val1|Val2
+        D|Val1
         T|CTSM_UKV.csv|22022026 07:46:03|1
         """;
 
@@ -225,8 +225,8 @@ public class ParquetSinkTests
         const string input = """
         H|CTSM_UKV.csv|22022026 07:46:03
         C|COL1|COL2|COL3
-        D|Short1|Short2
-        D|Long1|Long2|Long3|Long4
+        D|Short1
+        D|Long1|Long2|Long3
         T|CTSM_UKV.csv|22022026 07:46:03|2
         """;
 
@@ -243,8 +243,8 @@ public class ParquetSinkTests
         var col3 = new string[2];
         await rowGroupReader.ReadAsync(dataFields[2], col3);
 
-        col3[0].Should().Be("");       // padded - Short row had no COL3 value
-        col3[1].Should().Be("Long3");  // truncated - Long4 dropped
+        col3[0].Should().Be("");       // padded - short row had no COL3 value
+        col3[1].Should().Be("Long2");  // truncated - Long3 dropped
     }
 
     [Fact]

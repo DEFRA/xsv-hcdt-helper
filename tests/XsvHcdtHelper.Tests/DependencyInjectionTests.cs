@@ -86,4 +86,31 @@ public class DependencyInjectionTests
         options.InputDelimiter.Should().Be(FieldDelimiter.Auto);
         options.ValidateTrailerCount.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task NormaliseAsync_PerCallConfigure_OverridesRegisteredOptionsForSingleOperation()
+    {
+        var services = new ServiceCollection();
+        services.AddXsvHcdtHelper(o => o.OutputFormat = OutputFormat.Parquet);
+        var provider = services.BuildServiceProvider();
+
+        var normaliser = provider.GetRequiredService<IXsvHcdtNormaliser>();
+
+        const string input = "H|F.csv|22022026 07:46:03\n" +
+                             "C|RECORD_TYPE|ID\n" +
+                             "D|1\n" +
+                             "T|F.csv|22022026 07:46:03|1\n";
+
+        using var inputStream = new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(input));
+        using var outputStream = new System.IO.MemoryStream();
+
+        // Per-call override: CSV for this operation despite Parquet being registered.
+        await normaliser.NormaliseAsync(inputStream, outputStream, o => o.OutputFormat = OutputFormat.Csv);
+
+        var text = System.Text.Encoding.UTF8.GetString(outputStream.ToArray());
+        text.Should().StartWith("RECORD_TYPE,ID", "the per-call delegate must win over the registered options");
+
+        // The registered defaults are untouched for subsequent operations.
+        provider.GetRequiredService<IOptions<XsvHcdtOptions>>().Value.OutputFormat.Should().Be(OutputFormat.Parquet);
+    }
 }

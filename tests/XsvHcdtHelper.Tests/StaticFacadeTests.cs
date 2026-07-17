@@ -9,7 +9,7 @@ public class StaticFacadeTests
 {
     private const string ValidPipeInput = """
         H|CTSM_UKV.csv|22022026 07:46:03
-        C|COL1
+        C|RECORD_TYPE|COL1
         D|VAL1
         T|CTSM_UKV.csv|22022026 07:46:03|1
         """;
