@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFrameworks>net10.0</TargetFrameworks>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<!-- NuGet Packaging Metadata -->
+		<PackageId>XsvHcdtHelper</PackageId>
+		<Description>ETL helper for streaming and validating flat H/C/D/T structured files into standard CSV or Parquet formats with bounded memory.</Description>
+		<RepositoryUrl>https://github.com/DEFRA/xsv-hcdt-helper</RepositoryUrl>
+		<Authors>DEFRA Livestock Team</Authors>
+		<PackageLicenseExpression>OGL-UK-3.0</PackageLicenseExpression>
+
+		<!-- Symbols are embedded in the assembly: GitHub Packages does not accept .snupkg. -->
+		<DebugType>embedded</DebugType>
+		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<!-- ContinuousIntegrationBuild is passed by the CI workflows (-p:...) so local
+		     builds keep normal path mapping for debugging. -->
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
+		<PackageReference Include="CsvHelper" Version="33.1.0" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9" />
+		<PackageReference Include="Microsoft.Extensions.Options" Version="10.0.9" />
+		<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.9" />
+		<PackageReference Include="Parquet.Net" Version="6.0.3" />
+		<PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+	</ItemGroup>
+
+</Project> 

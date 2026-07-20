@@ -1,0 +1,25 @@
+## .NET build outputs
+[Bb]in/
+[Oo]bj/
+
+## IDE
+.vs/
+.idea/
+*.user
+*.suo
+
+## Test results & coverage
+TestResults/
+*.trx
+*.coverage
+coverage*.json
+coverage*.xml
+coverage*.info
+
+## NuGet pack output
+*.nupkg
+*.snupkg
+/packages/
+
+## Local scratch fixtures (deliberately not committed)
+/test-files/
