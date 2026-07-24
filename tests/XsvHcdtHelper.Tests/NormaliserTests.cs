@@ -9,6 +9,7 @@ using System.Globalization;
 using Parquet;
 using Parquet.Data;
 using Parquet.Schema;
+using XsvHcdtHelper.Tests.Helpers;
 
 public class NormaliserTests
 {
@@ -562,19 +563,18 @@ public class NormaliserTests
     public async Task NormaliseAsync_GivenNonSeekableOutput_ValidationFailureIsNotMasked()
     {
         const string input = """
-        H|CTSM_UKV.csv|22022026 07:46:03
-        C|RECORD_TYPE|RECORD_COUNT
-        D|1
-        T|CTSM_UKV.csv|22022026 07:46:03|999
-        """;
+    H|CTSM_UKV.csv|22022026 07:46:03
+    C|RECORD_TYPE|RECORD_COUNT
+    D|1
+    T|CTSM_UKV.csv|22022026 07:46:03|999
+    """;
 
         using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
-        await using var outputStream = new NonSeekableWriteStream();
+
+        await using var outputStream = new NonSeekableWriteStream(new MemoryStream());
 
         Func<Task> act = async () => await new XsvHcdtNormaliser().NormaliseAsync(inputStream, outputStream);
 
-        // The original validation error must propagate, not a NotSupportedException
-        // from attempting to truncate a stream that cannot seek.
         await act.Should().ThrowAsync<XsvValidationException>()
             .WithMessage("*Declared record count*");
     }
@@ -637,22 +637,70 @@ public class NormaliserTests
         }
     }
 
-    private sealed class NonSeekableWriteStream : Stream
+    [Fact]
+    public async Task NormaliseAsync_GivenFieldLargerThanBufferSize_HandlesCorrectly()
     {
-        public override bool CanRead => false;
-        public override bool CanSeek => false;
-        public override bool CanWrite => true;
-        public override long Length => throw new NotSupportedException();
-        public override long Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
+        var largeValue = new string('A', 100_000); // 100KB string, larger than default 64KB buffer
+        var input = $"H|f.csv|d\nC|TAG|DATA\nD|{largeValue}\nT|f.csv|d|1\n";
 
-        public override void Flush() { }
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) { }
+        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        using var outputStream = new MemoryStream();
+
+        // Use a small buffer to force multiple sreads
+        await new XsvHcdtNormaliser().NormaliseAsync(inputStream, outputStream, o => o.BufferSize = 1024);
+
+        outputStream.Position = 0;
+        var csv = await new StreamReader(outputStream).ReadToEndAsync();
+        csv.Should().Contain(largeValue);
+    }
+
+    [Fact]
+    public async Task NormaliseAsync_GivenUtf8WithBom_DetectsHeaderCorrectly()
+    {
+        var encodingWithBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        const string content = "H|f.csv|d\nC|COL\nD|Val\nT|f.csv|d|1\n";
+
+        using var inputStream = new MemoryStream(encodingWithBom.GetPreamble().Concat(Encoding.UTF8.GetBytes(content)).ToArray());
+        using var outputStream = new MemoryStream();
+
+        var report = await new XsvHcdtNormaliser().NormaliseAsync(inputStream, outputStream);
+        report.ActualDataRecords.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task NormaliseAsync_WhenParquetFailsAfterFirstRowGroupFlush_ClearsSeekableOutput()
+    {
+        const string input = "H|f.csv|d\nC|COL\nD|1\nD|2\nD|3\nT|f.csv|d|999\n";
+
+        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        using var outputStream = new MemoryStream();
+
+        var act = async () => await new XsvHcdtNormaliser().NormaliseAsync(inputStream, outputStream, o => {
+            o.OutputFormat = OutputFormat.Parquet;
+            o.RowGroupSize = 2;
+        });
+
+        await act.Should().ThrowAsync<XsvValidationException>();
+        outputStream.Length.Should().Be(0, "The stream should be truncated even if row groups were already written");
+    }
+
+    [Fact]
+    public async Task NormaliseAsync_HandlesComplexQuotingAndEmbeddedDelimiters()
+    {
+        // Field 2 contains: a quote, a pipe, a comma, and a newline.
+        const string complexValue = "Value with \"quote\", | pipe, and \n newline";
+        var input = "H|f.csv|d\nC|TAG|COL1\nD|\"Value with \"\"quote\"\", | pipe, and \n newline\"\nT|f.csv|d|1\n";
+
+        using var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        using var outputStream = new MemoryStream();
+
+        await new XsvHcdtNormaliser().NormaliseAsync(inputStream, outputStream);
+
+        outputStream.Position = 0;
+        using var reader = new StreamReader(outputStream);
+        var output = await reader.ReadToEndAsync();
+
+        // CSV output should escape the newline and quotes correctly
+        output.Should().Contain("\"Value with \"\"quote\"\", | pipe, and \n newline\"");
     }
 }
