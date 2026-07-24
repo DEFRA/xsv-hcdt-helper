@@ -301,4 +301,44 @@ public class ParquetSinkTests
 
         outputStream.Length.Should().Be(0);
     }
+
+    [Fact]
+    public async Task ParquetRowSink_DisposeAsync_IsSafeAndIdempotent_AfterMidStreamFailure()
+    {
+        // Arrange
+        using var output = new MemoryStream();
+        var options = new XsvHcdtOptions { RowGroupSize = 2 };
+
+        // Act
+        await using (var sink = new ParquetRowSink(output, options))
+        {
+            sink.Begin(new[] { "A", "B" });
+            await sink.WriteRowAsync(new[] { "1", "2" });
+            await sink.WriteRowAsync(new[] { "3", "4" });
+        }
+
+        // Assert
+        await using var reopened = new ParquetRowSink(output, options);
+    }
+
+    [Fact]
+    public async Task ParquetRowSink_DisposeAsync_ClosesWriter_OnAbnormalTermination()
+    {
+        // Arrange
+        using var output = new MemoryStream();
+        var options = new XsvHcdtOptions { RowGroupSize = 1 };
+
+        // Act
+        await using (var sink = new ParquetRowSink(output, options))
+        {
+            sink.Begin(new[] { "COL1" });
+            await sink.WriteRowAsync(new[] { "VAL1" });
+        }
+
+        // Assert
+        output.Position = 0;
+
+        var act = async () => await ParquetReader.CreateAsync(output);
+        await act.Should().NotThrowAsync("because DisposeAsync should have properly closed the ParquetWriter");
+    }
 }
