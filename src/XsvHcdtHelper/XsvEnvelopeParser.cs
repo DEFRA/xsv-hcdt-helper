@@ -14,6 +14,7 @@ internal sealed class XsvEnvelopeParser : IAsyncDisposable
     private readonly XsvRfc4180RecordReader _reader;
     private readonly XsvHcdtOptions _options;
     private List<string> _columns = [];
+    private bool _hasHeader;
 
     public XsvEnvelopeParser(Stream input, XsvHcdtOptions options)
     {
@@ -31,18 +32,29 @@ internal sealed class XsvEnvelopeParser : IAsyncDisposable
 
     public async IAsyncEnumerable<XsvRecord> ReadAsync([EnumeratorCancellation] CancellationToken ct = default)
     {
-        var header = await _reader.ReadAsync(ct);
-        if (header is null || header.Tag != 'H')
+        var first = await _reader.ReadAsync(ct);
+
+        // When the header is optional the first record may already be part of the body,
+        // so it is carried into the loop below rather than consumed here.
+        XsvParsedRecord? pending = null;
+        if (first is not null && first.Tag == 'H')
+        {
+            _hasHeader = true;
+            HeaderFileName = first.Fields.Count > 0 ? first.Fields[0] : null;
+            HeaderTimestamp = first.Fields.Count > 1 ? first.Fields[1] : null;
+        }
+        else if (_options.RequireHeader)
         {
             throw new XsvValidationException("File must start with an 'H' (Header) record.");
         }
-
-        HeaderFileName = header.Fields.Count > 0 ? header.Fields[0] : null;
-        HeaderTimestamp = header.Fields.Count > 1 ? header.Fields[1] : null;
+        else
+        {
+            pending = first;
+        }
 
         var hasReadColumns = false;
-        XsvParsedRecord? record;
-        while ((record = await _reader.ReadAsync(ct)) is not null)
+        var record = pending ?? await _reader.ReadAsync(ct);
+        while (record is not null)
         {
             if (record.Tag == 'C')
             {
@@ -81,9 +93,19 @@ internal sealed class XsvEnvelopeParser : IAsyncDisposable
             {
                 throw new XsvValidationException($"Unexpected record tag '{record.Tag}' encountered.");
             }
+
+            record = await _reader.ReadAsync(ct);
         }
 
-        throw new XsvValidationException("File is missing 'T' (Trailer) record or was truncated.");
+        if (_options.RequireTrailer)
+        {
+            throw new XsvValidationException("File is missing 'T' (Trailer) record or was truncated.");
+        }
+
+        if (_options.ValidateEnvelopeOrder && !hasReadColumns)
+        {
+            throw new XsvValidationException("File is missing 'C' (Columns) record.");
+        }
     }
 
     public ValueTask DisposeAsync() => _reader.DisposeAsync();
@@ -150,7 +172,8 @@ internal sealed class XsvEnvelopeParser : IAsyncDisposable
             };
         }
 
-        if (_options.ValidateHeaderTrailerMatch)
+        // With no header there is nothing to compare the trailer against.
+        if (_options.ValidateHeaderTrailerMatch && _hasHeader)
         {
             if (HeaderFileName != TrailerFileName)
             {

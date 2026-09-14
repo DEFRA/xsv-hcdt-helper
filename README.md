@@ -108,6 +108,46 @@ containing quotes is escaped correctly on the way out.
 
 ---
 
+## Optional header and trailer (split files)
+
+By default the envelope is mandatory: the input must open with `H` and close with `T`.
+
+When a large export is **split into slices after it was written**, the envelope spans the whole
+set rather than each slice. Depending on where the cuts fall, a slice may have a header but no
+trailer, a trailer but no header, or neither. Such a slice is perfectly good data, but strict
+validation rejects it with:
+
+```
+XsvValidationException: File is missing 'T' (Trailer) record or was truncated.
+```
+
+Use `RequireHeader` and `RequireTrailer` to process slices on their own:
+
+```csharp
+services.AddXsvHcdtHelper(options =>
+{
+    options.RequireHeader = false;
+    options.RequireTrailer = false;
+});
+```
+
+These control only whether the records must be **present**. Anything that *is* present is still
+validated: a trailer that is there still has its count and filename checked. When a record is
+absent the checks that depend on it are skipped, so:
+
+- with no header, `Report.FileName` / `Report.Timestamp` are `null` and the header/trailer match
+  is not attempted;
+- with no trailer, `Report.DeclaredRecordCount` stays `0` and the count check does not run.
+
+> A `C` (Columns) record is still required — without it the output columns cannot be named.
+> If your slices are cut below the `C` record, concatenate them back together instead.
+
+> For a split set where only the final slice carries the trailer, that last slice's count covers
+> the **whole** export, not just that slice. Set `ValidateTrailerCount = false` when processing
+> such slices individually.
+
+---
+
 ## Usage
 
 ### File-to-file

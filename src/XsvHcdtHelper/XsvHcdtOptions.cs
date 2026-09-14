@@ -40,6 +40,22 @@ public sealed class XsvHcdtOptions
     public bool ValidateEnvelopeOrder { get; set; } = true;
     public bool StrictFieldCount { get; set; } = false;
 
+    /// <summary>
+    /// Whether an <c>H</c> (Header) record must be the first record. Defaults to <c>true</c>.
+    /// Set to <c>false</c> to accept input that starts straight at the <c>C</c> or <c>D</c>
+    /// records, for example one slice of a file that was split after export.
+    /// </summary>
+    public bool RequireHeader { get; set; } = true;
+
+    /// <summary>
+    /// Whether a <c>T</c> (Trailer) record must close the input. Defaults to <c>true</c>.
+    /// Set to <c>false</c> to accept input that simply ends after the last <c>D</c> record.
+    /// When no trailer is present there is nothing to validate against, so
+    /// <see cref="ValidateTrailerCount"/> and <see cref="ValidateHeaderTrailerMatch"/> are
+    /// skipped and <see cref="XsvValidationReport.DeclaredRecordCount"/> stays 0.
+    /// </summary>
+    public bool RequireTrailer { get; set; } = true;
+
     public int RowGroupSize { get; set; } = 50_000;
     public int BufferSize { get; set; } = 64 * 1024;
     public Type? CustomSinkType { get; set; }

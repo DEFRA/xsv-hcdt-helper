@@ -108,7 +108,10 @@ internal sealed class XsvRfc4180RecordReader : IAsyncDisposable
             return ',';
         }
 
-        throw new XsvValidationException("Cannot auto-detect delimiter. Expected 'H|' or 'H,'.");
+        // The first record is not necessarily the header: with RequireHeader disabled the
+        // input can start at the C or D records instead.
+        throw new XsvValidationException(
+            "Cannot auto-detect delimiter. The first record must be a single-character tag followed by '|' or ','.");
     }
 
     private async ValueTask<string?> ReadRawRecordAsync(CancellationToken ct)
