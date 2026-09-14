@@ -55,6 +55,7 @@ services.AddXsvHcdtHelper(options =>
 {
     options.OutputFormat = OutputFormat.Parquet;
     options.InputDelimiter = FieldDelimiter.Pipe;
+    options.InputQuoting = QuoteHandling.None; // Treat '"' in the input as literal data
     options.StrictFieldCount = true; // Throws if a row doesn't match the column count
 });
 ```
@@ -66,6 +67,44 @@ services.AddXsvHcdtHelper(configuration.GetSection("XsvHcdt"));
 ```
 
 For example, from `appsettings.json`.
+
+---
+
+## Unquoted (legacy) input
+
+By default the parser applies RFC 4180 quoting to the **input**: a field whose first character
+is `"` is treated as quoted, so the delimiter and line breaks are literal until the closing
+quote, and `""` is an escaped quote.
+
+Many legacy extracts never quote anything — they emit raw delimited text in which `"` is just
+another character. A free-text column such as:
+
+```
+D|100|"holding closed in Data cleanse exercise".
+```
+
+looks like a quoted field followed by stray text, and fails with:
+
+```
+XsvValidationException: A quoted field must be followed by a delimiter or the end of the record.
+```
+
+Set `InputQuoting` to `QuoteHandling.None` for those feeds. Fields are then split on the
+delimiter alone and every `"` is preserved as data:
+
+```csharp
+services.AddXsvHcdtHelper(options =>
+{
+    options.InputDelimiter = FieldDelimiter.Pipe;
+    options.InputQuoting = QuoteHandling.None;
+});
+```
+
+This affects **input parsing only**. CSV output is always written as valid RFC 4180, so a value
+containing quotes is escaped correctly on the way out.
+
+> With `QuoteHandling.None` a delimiter between quotes is a real delimiter, so `"x|y"` is two
+> fields rather than one. Only use it for feeds that genuinely never quote.
 
 ---
 
