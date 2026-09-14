@@ -11,6 +11,7 @@ internal sealed class XsvRfc4180RecordReader : IAsyncDisposable
     private readonly StreamReader _reader;
     private readonly char[] _buffer;
     private readonly FieldDelimiter _configuredDelimiter;
+    private readonly QuoteHandling _quoteHandling;
 
     private int _bufferPosition;
     private int _bufferLength;
@@ -21,6 +22,7 @@ internal sealed class XsvRfc4180RecordReader : IAsyncDisposable
     public XsvRfc4180RecordReader(Stream input, XsvHcdtOptions options)
     {
         _configuredDelimiter = options.InputDelimiter;
+        _quoteHandling = options.InputQuoting;
         _reader = new StreamReader(
             input,
             encoding: Encoding.UTF8,
@@ -43,7 +45,7 @@ internal sealed class XsvRfc4180RecordReader : IAsyncDisposable
             _delimiter = ResolveDelimiter(rawRecord);
         }
 
-        var fields = ParseFields(rawRecord, _delimiter.Value);
+        var fields = ParseFields(rawRecord, _delimiter.Value, _quoteHandling);
         if (fields.Count == 0 || fields[0].Length != 1)
         {
             throw new XsvValidationException("Each record must start with a single-character H, C, D, or T tag.");
@@ -106,7 +108,10 @@ internal sealed class XsvRfc4180RecordReader : IAsyncDisposable
             return ',';
         }
 
-        throw new XsvValidationException("Cannot auto-detect delimiter. Expected 'H|' or 'H,'.");
+        // The first record is not necessarily the header: with RequireHeader disabled the
+        // input can start at the C or D records instead.
+        throw new XsvValidationException(
+            "Cannot auto-detect delimiter. The first record must be a single-character tag followed by '|' or ','.");
     }
 
     private async ValueTask<string?> ReadRawRecordAsync(CancellationToken ct)
@@ -186,7 +191,7 @@ internal sealed class XsvRfc4180RecordReader : IAsyncDisposable
                 continue;
             }
 
-            if (character == '"' && atFieldStart)
+            if (character == '"' && atFieldStart && _quoteHandling == QuoteHandling.Rfc4180)
             {
                 inQuotedField = true;
                 atFieldStart = false;
@@ -203,8 +208,15 @@ internal sealed class XsvRfc4180RecordReader : IAsyncDisposable
 
     }
 
-    private static List<string> ParseFields(string record, char delimiter)
+    private static List<string> ParseFields(string record, char delimiter, QuoteHandling quoteHandling)
     {
+        // Legacy feeds emit free-text columns unquoted, so a leading '"' is ordinary data
+        // rather than the start of a quoted field. Split on the delimiter alone.
+        if (quoteHandling == QuoteHandling.None)
+        {
+            return [.. record.Split(delimiter)];
+        }
+
         var fields = new List<string>();
         var field = new StringBuilder();
         var inQuotedField = false;
